@@ -16,21 +16,31 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Data.Monoid (mappend)
+import System.Directory (createDirectoryIfMissing)
 
 renderStaticPages :: Application -> Text -> [Text] -> IO ()
 renderStaticPages app directory requests = do
   flip mapM_ requests $ \path -> do
-    let p = noFrontSlash $ noTrailSlash path
+    let p = notEmpty $ noFrontSlash $ noTrailSlash path
     let req = setRawPathInfo defaultRequest $ encodeUtf8 p 
-    let outPath = directory `mappend` (decodeUtf8 $ rawPathInfo req) `mappend` ".html"
+    let outPath = directory `mappend` (noTrailSlash $ decodeUtf8 $ rawPathInfo req) `mappend` ".html"
     print (p, outPath)
     rsp <- runResourceT $ app req
     case rsp of
       ResponseBuilder s h b ->
         let body = toLazyByteString b
-        in  if s /= H.status200 then error $ "unexpected status: " ++ show s ++ "\nheaders: " ++ show h ++ "\nbody: " ++ show body else
-              LBS.writeFile (T.unpack outPath) body 
+        in  if s /= H.status200
+              then error $ "unexpected status: " ++ show s ++
+                           "\nheaders: " ++ show h ++
+                           "\nbody: " ++ show body
+              else do
+                createDirectoryIfMissing True $ dirname outPath
+                LBS.writeFile (T.unpack outPath) body
       _ -> error "expected ResponseBuilder"
+  where
+    dirname = T.unpack $ T.intercalate "/" $ init $ T.splitOn "/"
+    notEmpty t | T.null t = "/"
+               | otherwise = t
 
 noTrailSlash :: Text -> Text
 noTrailSlash str | T.null str = str
@@ -53,13 +63,16 @@ noFrontSlash str = str
 -- >        about
 -- >        faq
 -- >        /
+-- >-- commented out
 -- >|]
 --
 -- > staticPaths == ["/pages/about", "/pages/faq", "/pages"]
 parseRoutePaths :: Text -> [Text]
 parseRoutePaths =
-    parse [(0, "")] . filter (not . T.null) . T.lines
+    parse [(0, "")] . filter (not . commentedOut) . filter (not . T.null) . T.lines
   where
+    commentedOut = T.isPrefixOf "-- "
+
     parse :: [(Int, Text)] -> [Text] -> [Text]
     parse _ [] = []
     parse prefixes (line:[]) = [snd $ parseLine prefixes line]
