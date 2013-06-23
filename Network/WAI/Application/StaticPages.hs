@@ -23,7 +23,7 @@ renderStaticPages app directory requests = do
   flip mapM_ requests $ \path -> do
     let p = notEmpty $ noFrontSlash $ noTrailSlash path
     let req = setRawPathInfo defaultRequest $ encodeUtf8 p 
-    let outPath = directory `mappend` (noTrailSlash $ decodeUtf8 $ rawPathInfo req) `mappend` ".html"
+    let outPath = directory `mappend` emptyIndex (noTrailSlash $ decodeUtf8 $ rawPathInfo req) `mappend` ".html"
     print (p, outPath)
     rsp <- runResourceT $ app req
     case rsp of
@@ -38,9 +38,12 @@ renderStaticPages app directory requests = do
                 LBS.writeFile (T.unpack outPath) body
       _ -> error "expected ResponseBuilder"
   where
-    dirname = T.unpack $ T.intercalate "/" $ init $ T.splitOn "/"
+    dirname = T.unpack . T.intercalate "/" . init . T.splitOn "/"
     notEmpty t | T.null t = "/"
                | otherwise = t
+    emptyIndex t | T.null t = "index"
+                 | otherwise = t
+
 
 noTrailSlash :: Text -> Text
 noTrailSlash str | T.null str = str
