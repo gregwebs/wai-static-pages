@@ -18,7 +18,12 @@ import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Data.Monoid (mappend)
 import System.Directory (createDirectoryIfMissing)
 
-renderStaticPages :: Application -> Text -> [Text] -> IO ()
+-- | Run the request paths against the given WAI application and output it to the
+-- given directory
+renderStaticPages :: Application
+                  -> Text -- ^ directory
+                  -> [Text] -- ^ request paths
+                  -> IO ()
 renderStaticPages app directory requests = do
   flip mapM_ requests $ \path -> do
     let p = notEmpty $ noFrontSlash $ noTrailSlash path
