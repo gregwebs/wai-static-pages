@@ -2,6 +2,7 @@
 module Network.WAI.Application.StaticPages (
     parseRoutePaths
   , renderStaticPages
+  , renderStaticPagesTo
 ) where
 
 import Data.List (partition)
@@ -18,12 +19,17 @@ import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Data.Monoid (mappend)
 import System.Directory (createDirectoryIfMissing)
 
-renderStaticPages :: Application -> Text -> [Text] -> IO ()
-renderStaticPages app directory requests = do
+-- | Render the paths in the application, passing the path through the given function to determine
+-- the filepath on disk.
+renderStaticPagesTo :: Application 
+                      -> [Text] -- ^ request paths
+                      -> (Text -> Request -> FilePath) -- ^ convert the request path and request to a FilePath
+                      -> IO ()
+renderStaticPagesTo app requests toFp = do
   flip mapM_ requests $ \path -> do
     let p = notEmpty $ noFrontSlash $ noTrailSlash path
     let req = setRawPathInfo defaultRequest $ encodeUtf8 p 
-    let outPath = directory `mappend` emptyIndex (noTrailSlash $ decodeUtf8 $ rawPathInfo req) `mappend` ".html"
+    let outPath = toFp path req
     print (p, outPath)
     rsp <- runResourceT $ app req
     case rsp of
@@ -35,15 +41,25 @@ renderStaticPages app directory requests = do
                            "\nbody: " ++ show body
               else do
                 createDirectoryIfMissing True $ dirname outPath
-                LBS.writeFile (T.unpack outPath) body
+                LBS.writeFile outPath body
       _ -> error "expected ResponseBuilder"
   where
-    dirname = T.unpack . T.intercalate "/" . init . T.splitOn "/"
+    dirname = T.unpack . T.intercalate "/" . init . T.splitOn "/" . T.pack
     notEmpty t | T.null t = "/"
                | otherwise = t
+
+-- | Render the paths in the application, writing the results to the given directory with an .html
+-- extension.
+renderStaticPages :: Application
+                  -> Text   -- ^ directory
+                  -> [Text] -- ^ request paths
+                  -> IO ()
+renderStaticPages app directory requests =
+    renderStaticPagesTo app requests $ \_ req ->
+       T.unpack $ directory `mappend` emptyIndex (noTrailSlash $ decodeUtf8 $ rawPathInfo req) `mappend` ".html"
+  where
     emptyIndex t | T.null t = "index"
                  | otherwise = t
-
 
 noTrailSlash :: Text -> Text
 noTrailSlash str | T.null str = str
