@@ -1,4 +1,4 @@
-{-# Language OverloadedStrings #-}
+{-# Language OverloadedStrings, CPP #-}
 module Network.WAI.Application.StaticPages (
     parseRoutePaths
   , renderStaticPages
@@ -9,7 +9,6 @@ import Data.List (partition)
 import Network.Wai
 import Network.Wai.Test
 import Network.HTTP.Types as H
-import Data.Conduit (runResourceT)
 import Blaze.ByteString.Builder (toLazyByteString)
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as LBS
@@ -18,6 +17,16 @@ import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Data.Monoid (mappend)
 import System.Directory (createDirectoryIfMissing)
+
+#if MIN_VERSION_wai(2,0,0)
+import Network.Wai.Internal
+runApp :: IO a -> IO a
+runApp = id
+#else
+import Data.Conduit (ResourceT, runResourceT)
+runApp :: ResourceT IO a -> IO a
+runApp = runResourceT
+#endif
 
 -- | Render the paths in the application, passing the path through the given function to determine
 -- the filepath on disk.
@@ -31,7 +40,7 @@ renderStaticPagesTo app requests toFp = do
     let req = setRawPathInfo defaultRequest $ encodeUtf8 p 
     let outPath = toFp path req
     print (p, outPath)
-    rsp <- runResourceT $ app req
+    rsp <- runApp $ app req
     case rsp of
       ResponseBuilder s h b ->
         let body = toLazyByteString b
