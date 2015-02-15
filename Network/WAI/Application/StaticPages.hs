@@ -5,11 +5,14 @@ module Network.WAI.Application.StaticPages (
   , renderStaticPagesTo
 ) where
 
+import Control.Monad (void)
 import Data.List (partition)
 import Network.Wai
+import Network.Wai.Internal (ResponseReceived(..))
 import Network.Wai.Test
 import Network.HTTP.Types as H
-import Blaze.ByteString.Builder (toLazyByteString)
+import Blaze.ByteString.Builder (toByteStringIO)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text)
@@ -17,16 +20,7 @@ import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Data.Monoid (mappend)
 import System.Directory (createDirectoryIfMissing)
-
-#if MIN_VERSION_wai(2,0,0)
-import Network.Wai.Internal
-runApp :: IO a -> IO a
-runApp = id
-#else
-import Data.Conduit (ResourceT, runResourceT)
-runApp :: ResourceT IO a -> IO a
-runApp = runResourceT
-#endif
+import System.IO (hFlush, withFile, IOMode(..))
 
 -- | Render the paths in the application, passing the path through the given function to determine
 -- the filepath on disk.
@@ -40,18 +34,18 @@ renderStaticPagesTo app requests toFp = do
     let req = setRawPathInfo defaultRequest $ encodeUtf8 p 
     let outPath = toFp path req
     print (p, outPath)
-    rsp <- runApp $ app req
-    case rsp of
-      ResponseBuilder s h b ->
-        let body = toLazyByteString b
-        in  if s /= H.status200
-              then error $ "unexpected status: " ++ show s ++
-                           "\nheaders: " ++ show h ++
-                           "\nbody: " ++ show body
-              else do
+    void $ app req $ \response -> do
+        let (s, h, streambody) = responseToStream response
+        if s /= H.status200
+            then error $ "unexpected status: " ++ show s ++
+                       "\nheaders: " ++ show h
+            else do
                 createDirectoryIfMissing True $ dirname outPath
-                LBS.writeFile outPath body
-      _ -> error "expected ResponseBuilder"
+                withFile outPath WriteMode $ \outHandle ->
+                    streambody $ \body ->
+                        body (toByteStringIO $ BS.hPut outHandle) (hFlush outHandle)
+                return ResponseReceived
+
   where
     dirname = T.unpack . T.intercalate "/" . init . T.splitOn "/" . T.pack
     notEmpty t | T.null t = "/"
