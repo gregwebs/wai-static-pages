@@ -1,5 +1,5 @@
 name:                wai-static-pages
-version:             0.2.2.0
+version:             0.3
 synopsis:            generate static html pages from a WAI application
 description:         helpers for generating static html pages in a WAI application.
 license:             MIT
